@@ -8,6 +8,20 @@ services:
       - "8080:8080"
     volumes:
       - ./data/cockroach-data:/cockroach/cockroach-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health?type=ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db-init:
+    image: cockroachdb/cockroach:v23.1.10
+    volumes:
+      - ./db/init.sql:/init.sql
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c", "cockroach sql --insecure --host=db -e \"$(cat /init.sql)\""]
 
   kafka:
     image: apache/kafka:4.2.0
