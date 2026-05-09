@@ -1,0 +1,22 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: notification-service-scaler
+  namespace: flashservice
+spec:
+  scaleTargetRef:
+    name: notification-service
+    kind: Deployment
+  pollingInterval: 30
+  cooldownPeriod: 300
+  minReplicaCount: 1
+  maxReplicaCount: 10
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.flashservice.svc.cluster.local:9093
+        consumerGroup: notification-service
+        topic: notification
+        lagThreshold: "5"
+        activationLagThreshold: "3"
+        offsetResetPolicy: earliest

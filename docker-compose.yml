@@ -39,6 +39,29 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  kafka-init:
+    image: apache/kafka:4.2.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        echo "Creating Kafka topics..."
+        kafka-topics.sh --create --if-not-exists --topic order.created --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        kafka-topics.sh --create --if-not-exists --topic notification --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        kafka-topics.sh --create --if-not-exists --topic inventory.updated --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        echo "Topics created."
+        kafka-topics.sh --bootstrap-server kafka:9093 --list
 
   gateway:
     image: envoyproxy/envoy:v1.26-latest
@@ -52,8 +75,12 @@ services:
   order-service:
     build: ./microservices/order-service
     depends_on:
-      - db
-      - kafka
+      db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
       - DB_URL=postgresql://root@db:26257/defaultdb?sslmode=disable
       - KAFKA_BROKERS=kafka:9093
@@ -61,14 +88,18 @@ services:
   user-service:
     build: ./microservices/user-service
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       - DB_URL=postgresql://root@db:26257/defaultdb?sslmode=disable
 
   notification-service:
     build: ./microservices/notification-service
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     environment:
       - KAFKA_BROKERS=kafka:9093
       - KAFKA_TOPIC=notification
