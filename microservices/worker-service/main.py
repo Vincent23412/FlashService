@@ -42,6 +42,45 @@ def send_to_dlq(payload, error_message):
     get_producer().send(DLQ_TOPIC, key=str(payload.get("order_id", "unknown")), value=event).get(timeout=10)
 
 
+def format_email_job_log(payload):
+    recipient = payload.get("recipient") or {}
+    order = payload.get("order") or {}
+    items = order.get("items") or []
+    summary = order.get("summary") or {}
+
+    item_lines = []
+    for index, item in enumerate(items, start=1):
+        item_lines.append(
+            "  "
+            f"{index}. {item.get('product_name', 'unknown-product')} "
+            f"(product_id={item.get('product_id', 'unknown')}, "
+            f"qty={item.get('quantity', 0)}, "
+            f"unit_price={item.get('price_at_purchase', '0')}, "
+            f"subtotal={item.get('subtotal', '0')})"
+        )
+
+    if not item_lines:
+        item_lines.append("  (no items)")
+
+    lines = [
+        "[worker] Async email job received",
+        f"  order_id={payload.get('order_id', 'unknown')}",
+        f"  order_status={payload.get('status', 'unknown')}",
+        f"  created_at={payload.get('created_at', 'unknown')}",
+        "  recipient:",
+        f"    user_id={recipient.get('user_id', 'unknown')}",
+        f"    username={recipient.get('username', 'unknown')}",
+        f"    email={recipient.get('email', 'unknown')}",
+        "  order_items:",
+        *item_lines,
+        "  summary:",
+        f"    item_count={summary.get('item_count', 0)}",
+        f"    total_quantity={summary.get('total_quantity', 0)}",
+        f"    total_amount={summary.get('total_amount', '0')}",
+    ]
+    return "\n".join(lines)
+
+
 def consume_loop():
     while not stop_event.is_set():
         consumer = None
@@ -66,12 +105,7 @@ def consume_loop():
 
                 try:
                     payload = json.loads(msg.value)
-                    order_id = payload.get("order_id", "unknown")
-                    user_id = payload.get("user_id", "unknown")
-                    print(
-                        f"[worker] Email job processed for user={user_id} order={order_id}",
-                        flush=True,
-                    )
+                    print(format_email_job_log(payload), flush=True)
                 except Exception as exc:
                     print(f"[worker] Processing error: {exc}", flush=True)
                     try:
