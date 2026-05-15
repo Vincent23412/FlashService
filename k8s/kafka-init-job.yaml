@@ -22,7 +22,7 @@ spec:
               done
               echo "Creating Kafka topics..."
               /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic user-db-cdc --partitions 3 --replication-factor 1 --bootstrap-server kafka.flashservice.svc.cluster.local:9093
-              /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic email-job --partitions 3 --replication-factor 1 --bootstrap-server kafka.flashservice.svc.cluster.local:9093
+              /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic email-job --partitions 10 --replication-factor 1 --bootstrap-server kafka.flashservice.svc.cluster.local:9093
               /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic failed-dlq --partitions 3 --replication-factor 1 --bootstrap-server kafka.flashservice.svc.cluster.local:9093
               echo "Topics created."
               /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka.flashservice.svc.cluster.local:9093 --list
