@@ -84,7 +84,7 @@ flowchart LR
 ## 文件
 
 - API 規格：
-  - [User Service API](/Users/vincent/Documents/GitHub/FlashService/docs/user-service-api.md)
-  - [Order Service API](/Users/vincent/Documents/GitHub/FlashService/docs/order-service-api.md)
+  - [User Service API](docs/user-service-api.md)
+  - [Order Service API](docs/order-service-api.md)
 - 測試流程：
-  - [Testing Guide](/Users/vincent/Documents/GitHub/FlashService/docs/testing-guide.md)
+  - [Testing Guide](docs/testing-guide.md)
