@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: user-db-init
+  namespace: flashservice
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: user-db-init
+          image: postgres:16
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cat <<'SQL' >/tmp/init.sql
+              CREATE EXTENSION IF NOT EXISTS pgcrypto;
+              CREATE TABLE IF NOT EXISTS users (
+                  user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                  username VARCHAR(50) NOT NULL,
+                  email VARCHAR(100) UNIQUE NOT NULL,
+                  created_at TIMESTAMP DEFAULT now(),
+                  updated_at TIMESTAMP DEFAULT now()
+              );
+              SQL
+              PGPASSWORD=postgres psql -h user-db.flashservice.svc.cluster.local -U postgres -d users -f /tmp/init.sql
+  backoffLimit: 5

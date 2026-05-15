@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: debezium-connector-init
+  namespace: flashservice
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: connector-init
+          image: curlimages/curl:8.8.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cat <<'JSON' >/tmp/connector.json
+              {
+                "name": "user-db-connector",
+                "config": {
+                  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+                  "plugin.name": "pgoutput",
+                  "database.hostname": "user-db.flashservice.svc.cluster.local",
+                  "database.port": "5432",
+                  "database.user": "postgres",
+                  "database.password": "postgres",
+                  "database.dbname": "users",
+                  "database.server.name": "userdb",
+                  "topic.prefix": "userdb",
+                  "table.include.list": "public.users",
+                  "slot.name": "user_db_slot",
+                  "publication.name": "user_db_publication",
+                  "tombstones.on.delete": "false",
+                  "transforms": "route",
+                  "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+                  "transforms.route.regex": "userdb.public.users",
+                  "transforms.route.replacement": "user-db-cdc"
+                }
+              }
+              JSON
+              curl -sS -X POST http://debezium-connect.flashservice.svc.cluster.local:8083/connectors \
+                -H "Content-Type: application/json" \
+                --data @/tmp/connector.json || true
+  backoffLimit: 5

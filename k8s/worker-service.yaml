@@ -1,35 +1,33 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: order-service
+  name: worker-service
   namespace: flashservice
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: order-service
+      app: worker-service
   template:
     metadata:
       labels:
-        app: order-service
+        app: worker-service
     spec:
       containers:
-        - name: order-service
-          image: flashservice/order-service:latest
+        - name: worker-service
+          image: flashservice/worker-service:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           env:
-            - name: DB_URL
-              value: "postgresql://root@order-db.flashservice.svc.cluster.local:26257/defaultdb?sslmode=disable"
             - name: KAFKA_BROKERS
               value: "kafka.flashservice.svc.cluster.local:9093"
-            - name: EMAIL_JOB_TOPIC
+            - name: KAFKA_TOPIC
               value: "email-job"
-            - name: USER_CDC_TOPIC
-              value: "user-db-cdc"
-            - name: CDC_CONSUMER_GROUP
-              value: "order-user-sync"
+            - name: KAFKA_DLQ_TOPIC
+              value: "failed-dlq"
+            - name: KAFKA_CONSUMER_GROUP
+              value: "worker-service"
           livenessProbe:
             httpGet:
               path: /health
@@ -46,11 +44,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: order-service
+  name: worker-service
   namespace: flashservice
 spec:
   selector:
-    app: order-service
+    app: worker-service
   ports:
     - port: 80
       targetPort: 80

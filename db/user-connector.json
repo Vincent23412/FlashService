@@ -1,0 +1,22 @@
+{
+  "name": "user-db-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "plugin.name": "pgoutput",
+    "database.hostname": "user-db",
+    "database.port": "5432",
+    "database.user": "postgres",
+    "database.password": "postgres",
+    "database.dbname": "users",
+    "database.server.name": "userdb",
+    "topic.prefix": "userdb",
+    "table.include.list": "public.users",
+    "slot.name": "user_db_slot",
+    "publication.name": "user_db_publication",
+    "tombstones.on.delete": "false",
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.route.regex": "userdb.public.users",
+    "transforms.route.replacement": "user-db-cdc"
+  }
+}
