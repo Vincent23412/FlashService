@@ -1,6 +1,41 @@
 services:
-  # --- Infrastructure ---
-  db:
+  user-db:
+    image: postgres:16
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=4
+      - -c
+      - max_replication_slots=4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: users
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d users"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  user-db-init:
+    image: postgres:16
+    depends_on:
+      user-db:
+        condition: service_healthy
+    volumes:
+      - ./db/user-init.sql:/init.sql
+    entrypoint:
+      - /bin/sh
+      - -c
+      - PGPASSWORD=postgres psql -h user-db -U postgres -d users -f /init.sql
+
+  order-db:
     image: cockroachdb/cockroach:v23.1.10
     command: start-single-node --insecure
     ports:
@@ -12,16 +47,19 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8080/health?type=ready"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  db-init:
+  order-db-init:
     image: cockroachdb/cockroach:v23.1.10
-    volumes:
-      - ./db/init.sql:/init.sql
     depends_on:
-      db:
+      order-db:
         condition: service_healthy
-    entrypoint: ["/bin/bash", "-c", "cockroach sql --insecure --host=db -e \"$(cat /init.sql)\""]
+    volumes:
+      - ./db/order-init.sql:/init.sql
+    entrypoint:
+      - /bin/bash
+      - -c
+      - cockroach sql --insecure --host=order-db -d defaultdb -f /init.sql
 
   kafka:
     image: apache/kafka:4.2.0
@@ -57,49 +95,96 @@ services:
       - -c
       - |
         echo "Creating Kafka topics..."
-        kafka-topics.sh --create --if-not-exists --topic order.created --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
-        kafka-topics.sh --create --if-not-exists --topic notification --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
-        kafka-topics.sh --create --if-not-exists --topic inventory.updated --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
-        echo "Topics created."
+        kafka-topics.sh --create --if-not-exists --topic user-db-cdc --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        kafka-topics.sh --create --if-not-exists --topic email-job --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        kafka-topics.sh --create --if-not-exists --topic failed-dlq --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
         kafka-topics.sh --bootstrap-server kafka:9093 --list
 
-  gateway:
-    image: envoyproxy/envoy:v1.26-latest
-    volumes:
-      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml
-    ports:
-      - "80:10000"
-      - "9901:9901"
-
-  # --- Microservices ---
-  order-service:
-    build: ./microservices/order-service
+  debezium-connect:
+    image: debezium/connect:2.7
     depends_on:
-      db:
-        condition: service_healthy
       kafka:
+        condition: service_healthy
+      user-db:
+        condition: service_healthy
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9093
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect-configs
+      OFFSET_STORAGE_TOPIC: connect-offsets
+      STATUS_STORAGE_TOPIC: connect-status
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      ENABLE_DEBEZIUM_SCRIPTING: "false"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  debezium-init:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      debezium-connect:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
-    environment:
-      - DB_URL=postgresql://root@db:26257/defaultdb?sslmode=disable
-      - KAFKA_BROKERS=kafka:9093
+    volumes:
+      - ./db/user-connector.json:/connector.json
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        curl -sS -X POST http://debezium-connect:8083/connectors \
+          -H "Content-Type: application/json" \
+          --data @/connector.json || true
 
   user-service:
     build: ./microservices/user-service
     depends_on:
-      db:
+      user-db:
         condition: service_healthy
+      user-db-init:
+        condition: service_completed_successfully
     environment:
-      - DB_URL=postgresql://root@db:26257/defaultdb?sslmode=disable
+      DB_URL: postgresql://postgres:postgres@user-db:5432/users
+    ports:
+      - "8001:80"
 
-  notification-service:
-    build: ./microservices/notification-service
+  order-service:
+    build: ./microservices/order-service
+    depends_on:
+      order-db:
+        condition: service_healthy
+      order-db-init:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      DB_URL: postgresql://root@order-db:26257/defaultdb?sslmode=disable
+      KAFKA_BROKERS: kafka:9093
+      EMAIL_JOB_TOPIC: email-job
+      USER_CDC_TOPIC: user-db-cdc
+      CDC_CONSUMER_GROUP: order-user-sync
+    ports:
+      - "8002:80"
+
+  worker-service:
+    build: ./microservices/worker-service
     depends_on:
       kafka:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
     environment:
-      - KAFKA_BROKERS=kafka:9093
-      - KAFKA_TOPIC=notification
+      KAFKA_BROKERS: kafka:9093
+      KAFKA_TOPIC: email-job
+      KAFKA_DLQ_TOPIC: failed-dlq
+      KAFKA_CONSUMER_GROUP: worker-service
