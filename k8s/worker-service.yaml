@@ -1,30 +1,32 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: notification-service
+  name: worker-service
   namespace: flashservice
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: notification-service
+      app: worker-service
   template:
     metadata:
       labels:
-        app: notification-service
+        app: worker-service
     spec:
       containers:
-        - name: notification-service
-          image: flashservice/notification-service:latest
+        - name: worker-service
+          image: flashservice/worker-service:latest
           ports:
             - containerPort: 80
           env:
             - name: KAFKA_BROKERS
               value: "kafka.flashservice.svc.cluster.local:9093"
             - name: KAFKA_TOPIC
-              value: "notification"
+              value: "email-job"
+            - name: KAFKA_DLQ_TOPIC
+              value: "failed-dlq"
             - name: KAFKA_CONSUMER_GROUP
-              value: "notification-service"
+              value: "worker-service"
           livenessProbe:
             httpGet:
               path: /health
@@ -41,11 +43,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: notification-service
+  name: worker-service
   namespace: flashservice
 spec:
   selector:
-    app: notification-service
+    app: worker-service
   ports:
     - port: 80
       targetPort: 80
