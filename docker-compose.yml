@@ -79,11 +79,11 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD", "bash", "-c", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/127.0.0.1/9092"]
       interval: 5s
       timeout: 5s
-      retries: 10
-      start_period: 30s
+      retries: 20
+      start_period: 60s
 
   kafka-init:
     image: apache/kafka:4.2.0
@@ -95,13 +95,13 @@ services:
       - -c
       - |
         echo "Creating Kafka topics..."
-        kafka-topics.sh --create --if-not-exists --topic user-db-cdc --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
-        kafka-topics.sh --create --if-not-exists --topic email-job --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
-        kafka-topics.sh --create --if-not-exists --topic failed-dlq --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
-        kafka-topics.sh --bootstrap-server kafka:9093 --list
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic user-db-cdc --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic email-job --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic failed-dlq --partitions 3 --replication-factor 1 --bootstrap-server kafka:9093
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9093 --list
 
   debezium-connect:
-    image: debezium/connect:2.7
+    image: quay.io/debezium/connect:2.7.3.Final
     depends_on:
       kafka:
         condition: service_healthy

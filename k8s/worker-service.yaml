@@ -16,6 +16,7 @@ spec:
       containers:
         - name: worker-service
           image: flashservice/worker-service:latest
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           env:

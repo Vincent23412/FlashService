@@ -45,12 +45,9 @@ spec:
             - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
               value: "true"
           readinessProbe:
-            exec:
-              command:
-                - bash
-                - -c
-                - kafka-broker-api-versions.sh --bootstrap-server localhost:9092
-            initialDelaySeconds: 15
+            tcpSocket:
+              port: 9093
+            initialDelaySeconds: 20
             periodSeconds: 5
             failureThreshold: 10
 ---

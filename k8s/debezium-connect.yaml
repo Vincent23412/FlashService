@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: debezium-connect
-          image: debezium/connect:2.7
+          image: quay.io/debezium/connect:2.7.3.Final
           ports:
             - containerPort: 8083
           env:
