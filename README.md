@@ -1,91 +1,90 @@
 # FlashService
 
-目前已調整為以下資源骨架：
+## Architecture
 
-`Client -> Native Ingress -> user-service / order-service`
+```mermaid
+flowchart LR
+    Client[Client]
+    Ingress[NGINX Ingress]
 
-`user-service -> PostgreSQL (users)`
+    subgraph UserService["User Service"]
+        UserAPI[user-service]
+        UserDB[(PostgreSQL\nusers)]
+        UserAPI -->|CRUD users| UserDB
+    end
 
-`PostgreSQL WAL -> Debezium -> Kafka topic user-db-cdc -> order-service consumer -> CockroachDB user_snapshot`
+    subgraph CDC["CDC Pipeline"]
+        Debezium[Debezium Connect]
+    end
 
-`order-service -> Kafka topic email-job -> worker-service -> failed-dlq`
+    subgraph Kafka["Kafka"]
+        UserCDC[Topic: user-db-cdc]
+        EmailJob[Topic: email-job]
+        DLQ[Topic: failed-dlq]
+    end
 
-`KEDA -> 依 email-job consumer lag 擴縮 worker-service`
+    subgraph OrderService["Order Service"]
+        OrderAPI[order-service]
+        CDCConsumer[user snapshot consumer]
+        OrderDB[(CockroachDB\nproducts\ninventory\norders\norder_items\nuser_snapshot)]
 
-## 目錄
+        OrderAPI -->|create/update/query orders| OrderDB
+        CDCConsumer -->|UPSERT user_snapshot| OrderDB
+    end
 
-- [docker-compose.yml](/Users/vincent/Documents/GitHub/FlashService/docker-compose.yml)
-- [db/user-init.sql](/Users/vincent/Documents/GitHub/FlashService/db/user-init.sql)
-- [db/order-init.sql](/Users/vincent/Documents/GitHub/FlashService/db/order-init.sql)
-- [db/user-connector.json](/Users/vincent/Documents/GitHub/FlashService/db/user-connector.json)
-- [k8s/](/Users/vincent/Documents/GitHub/FlashService/k8s)
+    subgraph WorkerService["Worker Service"]
+        Worker[worker-service]
+    end
 
-## Docker Compose 資源
+    Client --> Ingress
+    Ingress -->|/users| UserAPI
+    Ingress -->|/orders| OrderAPI
 
-- `user-db`: PostgreSQL 16，已開 `wal_level=logical`
-- `user-db-init`: 建立 `users`
-- `order-db`: CockroachDB
-- `order-db-init`: 建立 `products`、`inventory`、`orders`、`order_items`、`user_snapshot`
-- `kafka`: 單節點 Kafka
-- `kafka-init`: 建立 `user-db-cdc`、`email-job`、`failed-dlq`
-- `debezium-connect`: Kafka Connect + Debezium
-- `debezium-init`: 註冊 PostgreSQL source connector
-- `user-service`
-- `order-service`
-- `worker-service`
-啟動：
+    UserDB -->|WAL / logical replication| Debezium
+    Debezium -->|publish CDC event| UserCDC
+    UserCDC -->|consume| CDCConsumer
 
-```bash
-docker compose up --build -d
+    OrderAPI -->|publish async email job| EmailJob
+    EmailJob -->|consume| Worker
+    Worker -->|log formatted order + recipient info| Worker
+    Worker -->|failed message| DLQ
 ```
 
-本地 compose 沒有再放 API gateway，直接暴露：
+## File Structure
 
-- `http://localhost:8001` -> `user-service`
-- `http://localhost:8002` -> `order-service`
-
-## Kubernetes 資源
-
-已新增這些 manifests：
-
-- `k8s/namespace.yaml`
-- `k8s/postgres.yaml`
-- `k8s/user-db-init-job.yaml`
-- `k8s/cockroach.yaml`
-- `k8s/order-db-init-job.yaml`
-- `k8s/kafka.yaml`
-- `k8s/kafka-init-job.yaml`
-- `k8s/debezium-connect.yaml`
-- `k8s/debezium-connector-job.yaml`
-- `k8s/user-service.yaml`
-- `k8s/order-service.yaml`
-- `k8s/worker-service.yaml`
-- `k8s/ingress.yaml`
-- `k8s/keda-scaledobject.yaml`
-
-套用順序建議：
-
-```bash
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/postgres.yaml
-kubectl apply -f k8s/cockroach.yaml
-kubectl apply -f k8s/kafka.yaml
-kubectl apply -f k8s/user-db-init-job.yaml
-kubectl apply -f k8s/order-db-init-job.yaml
-kubectl apply -f k8s/kafka-init-job.yaml
-kubectl apply -f k8s/debezium-connect.yaml
-kubectl apply -f k8s/debezium-connector-job.yaml
-kubectl apply -f k8s/user-service.yaml
-kubectl apply -f k8s/order-service.yaml
-kubectl apply -f k8s/worker-service.yaml
-kubectl apply -f k8s/ingress.yaml
-kubectl apply -f k8s/keda-scaledobject.yaml
+```text
+.
+├── docker-compose.yml
+├── kind-config.yaml
+├── db
+│   ├── user-init.sql
+│   ├── order-init.sql
+│   └── user-connector.json
+├── k8s
+│   ├── namespace.yaml
+│   ├── postgres.yaml
+│   ├── user-db-init-job.yaml
+│   ├── cockroach.yaml
+│   ├── order-db-init-job.yaml
+│   ├── kafka.yaml
+│   ├── kafka-init-job.yaml
+│   ├── debezium-connect.yaml
+│   ├── debezium-connector-job.yaml
+│   ├── user-service.yaml
+│   ├── order-service.yaml
+│   ├── worker-service.yaml
+│   ├── ingress.yaml
+│   └── keda-scaledobject.yaml
+└── docs
+    ├── user-service-api.md
+    ├── order-service-api.md
+    └── testing-guide.md
 ```
 
-## 目前狀態
+## 文件
 
-- 已完成資源骨架與 topic / connector / ingress / scaler 對齊
-- `worker-service` 已新增為新的 consumer service
-- `order-service` 已改為發送 `email-job`，並預留 `user-db-cdc` consumer
-- 這一版重點是「先把資源建起來」
-- 完整業務流程、真正的使用者 CRUD、正式 Debezium payload mapping、重試策略與 email sender 仍可再補
+- API 規格：
+  - [User Service API](/Users/vincent/Documents/GitHub/FlashService/docs/user-service-api.md)
+  - [Order Service API](/Users/vincent/Documents/GitHub/FlashService/docs/order-service-api.md)
+- 測試流程：
+  - [Testing Guide](/Users/vincent/Documents/GitHub/FlashService/docs/testing-guide.md)
