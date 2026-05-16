@@ -227,10 +227,13 @@ kind export kubeconfig --name kind
 kubectl get nodes --show-labels | grep ingress-ready
 ```
 
-### 2. Install ingress-nginx
+### 2. Install ingress-nginx controller on the control-plane node
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+kubectl patch deployment ingress-nginx-controller \
+  -n ingress-nginx \
+  --patch-file k8s/ingress-nginx-controller-patch.yaml
 kubectl wait --namespace ingress-nginx \
   --for=condition=ready pod \
   --selector=app.kubernetes.io/component=controller \
@@ -238,7 +241,7 @@ kubectl wait --namespace ingress-nginx \
 kubectl get pod -n ingress-nginx -o wide
 ```
 
-Controller should run on `kind-control-plane`.
+The patch targets the `ingress-nginx-controller` Deployment, pins its Pods to nodes labeled `ingress-ready=true`, and adds tolerations for control-plane taints. The controller Pod should run on `kind-control-plane`.
 
 ### 3. Build and load local images
 
